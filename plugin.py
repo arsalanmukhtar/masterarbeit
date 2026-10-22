@@ -37,7 +37,7 @@ class CenGeoBWPlugin:
     def initGui(self):
         self.action = QAction(QIcon(os.path.join(PLUGIN_DIR, "icon.png")), "Census Dashboard",
                               self.iface.mainWindow())
-        self.action.setToolTip("CenGeo BW – Baden-Württemberg Census Dashboard")
+        self.action.setToolTip("CenGeo BW: Baden-Württemberg Census Dashboard")
         self.action.triggered.connect(self.run)
         self.iface.addPluginToMenu(MENU, self.action)
         self.iface.addToolBarIcon(self.action)

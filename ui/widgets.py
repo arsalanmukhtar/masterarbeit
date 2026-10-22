@@ -151,12 +151,12 @@ class ChartSelector(QWidget):
         return ChartQuery(chart, self.x_axis.currentData(), self.y_axis.currentData(), filters, age_range)
 
     def describe(self) -> Optional[str]:
-        """Filter summary for the chart legend, e.g. "Feature: Berufseinpendler · Age 20–40"."""
+        """Filter summary for the chart legend, e.g. "Feature: Berufseinpendler · Age 20 to 40"."""
         parts = [f"{self._data.label(dimension)}: {combo.currentText()}" for dimension, combo in self._filters.items()]
         if self._age:
             low, high = self._age[0].value(), self._age[1].value()
             if (low, high) != (self._age[0].minimum(), self._age[0].maximum()):
-                parts.append(f"Age {low}–{high}")
+                parts.append(f"Age {low} to {high}")
             elif self.x_axis.currentData() != "age":
                 parts.append("All ages")
         return " · ".join(parts) or None

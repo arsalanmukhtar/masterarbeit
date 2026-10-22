@@ -12,7 +12,7 @@ from ..spatial.layers import render_map_image
 from .chart_tabs import GemeindeComparisonTab, GemeindeTab, KreisLandTab
 from .spatial_tab import SpatialTab
 
-TITLE = "CenGeo BW – Baden-Württemberg Census Dashboard"
+TITLE = "CenGeo BW: Baden-Württemberg Census Dashboard"
 SCREEN_SHARE = 0.85
 
 

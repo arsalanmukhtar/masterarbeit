@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Create dist/CenGeoBW-<version>.zip, ready for QGIS "Install from ZIP" and for a GitHub release.
+"""Create the release ZIP in dist/ (CenGeoBW-2.0.0.zip for version 2.0.0), ready for QGIS "Install from ZIP" and for a GitHub release.
 
     python tools/package_plugin.py              # plugin with the data file (normal release)
     python tools/package_plugin.py --no-data    # code only

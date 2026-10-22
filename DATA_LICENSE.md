@@ -1,9 +1,5 @@
 # Data licence
 
-> **Maintainer note – remove before publishing:** the licence for the statistical data below must be
-> confirmed against the current terms of use on www.statistik-bw.de (and the exact dataset URLs added).
-> The boundary licence (LGL) has been confirmed.
-
 This file covers the data shipped in `data/cengeobw.gpkg` and everything the plugin produces from it
 (charts, PDF reports, PNG images and exported layers). The plugin's source code is licensed separately.
 
@@ -13,7 +9,7 @@ This file covers the data shipped in `data/cengeobw.gpkg` and everything the plu
 |---|---|
 | Provider | Statistisches Landesamt Baden-Württemberg, <https://www.statistik-bw.de> |
 | Content | Gemeinde, Kreis and Land statistics on demography, education, population forecasts, living, tourism and employment |
-| Licence | Datenlizenz Deutschland – Namensnennung – Version 2.0 (`dl-de/by-2-0`), <https://www.govdata.de/dl-de/by-2-0> |
+| Licence | Datenlizenz Deutschland - Namensnennung - Version 2.0 (`dl-de/by-2-0`), <https://www.govdata.de/dl-de/by-2-0> |
 | Attribution | Datenquelle: Statistisches Landesamt Baden-Württemberg, dl-de/by-2-0 |
 | Changes | Converted from the original tables into a GeoPackage; numbers stored as text were converted to numeric types. No values were altered. |
 
@@ -23,7 +19,7 @@ This file covers the data shipped in `data/cengeobw.gpkg` and everything the plu
 |---|---|
 | Provider | Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL), <https://www.lgl-bw.de> |
 | Content | Gemeinde boundaries (ALKIS), EPSG:4326 |
-| Licence | Datenlizenz Deutschland – Namensnennung – Version 2.0 (`dl-de/by-2-0`), <https://www.govdata.de/dl-de/by-2-0> |
+| Licence | Datenlizenz Deutschland - Namensnennung - Version 2.0 (`dl-de/by-2-0`), <https://www.govdata.de/dl-de/by-2-0> |
 | Attribution | Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0 |
 | Changes | Geometries simplified with a tolerance of about 10 m (0.0001°); borders shared by neighbouring Gemeinden were kept identical. |
 

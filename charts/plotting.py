@@ -19,7 +19,7 @@ MAX_TICK_LABELS = 30
 
 def format_number(value) -> str:
     if value is None or (isinstance(value, float) and math.isnan(value)):
-        return "–"
+        return "-"
     if float(value).is_integer():
         return f"{int(value):,}"
     return f"{value:,.2f}"

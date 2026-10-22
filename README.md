@@ -1,4 +1,4 @@
-# CenGeo BW – Baden-Württemberg Census Dashboard
+# CenGeo BW: Baden-Württemberg Census Dashboard
 
 A QGIS plugin for exploring official statistics of every Gemeinde in Baden-Württemberg: interactive
 charts, comparisons with the Kreis and the whole state, side-by-side comparison of two Gemeinden,
@@ -12,7 +12,7 @@ original PostgreSQL database into the GeoPackage.
 
 ## Installation
 
-1. Download `CenGeoBW-<version>.zip` from the
+1. Download the plugin ZIP (for example `CenGeoBW-2.0.0.zip`) from the
    [Releases page](https://github.com/arsalanmukhtar/masterarbeit/releases). Use the release asset,
    not GitHub's "Source code" ZIP, which does not contain the data.
 2. In QGIS open *Plugins → Manage and Install Plugins… → Install from ZIP*, choose the file and click
@@ -43,7 +43,7 @@ everything else works offline.
 ## Data and licence
 
 The statistics come from the Statistisches Landesamt Baden-Württemberg and the Gemeinde boundaries from
-the LGL Baden-Württemberg, both under *Datenlizenz Deutschland – Namensnennung – Version 2.0*. See
+the LGL Baden-Württemberg, both under *Datenlizenz Deutschland - Namensnennung - Version 2.0*. See
 [DATA_LICENSE.md](DATA_LICENSE.md) for the attribution that must accompany the data and anything
 produced from it.
 
@@ -58,7 +58,7 @@ masterarbeit/            (installed as CenGeoBW/)
 ├── __init__.py          QGIS entry point (classFactory)
 ├── plugin.py            toolbar/menu action, finding the data file, window lifetime
 ├── compat.py            the few Qt5/Qt6 differences
-├── metadata.txt         plugin metadata (version, QGIS 3.22–4.99)
+├── metadata.txt         plugin metadata (version, QGIS 3.22 to 4.99)
 ├── core/
 │   ├── data.py          CensusData: all queries against the GeoPackage
 │   ├── models.py        data classes (Gemeinde, Chart, ChartQuery, Series, ...)
@@ -119,7 +119,7 @@ simplifies the boundaries (about 10 m, `--tolerance`), adds indexes and checks t
 ### Releasing
 
 1. Raise `version` in `metadata.txt` and add a `changelog` line.
-2. Run `python tools/package_plugin.py` → `dist/CenGeoBW-<version>.zip`.
+2. Run `python tools/package_plugin.py`. It writes `dist/CenGeoBW-2.0.0.zip`, named after the version in `metadata.txt`.
 3. Create a GitHub release for the version and attach the ZIP: on GitHub via *Releases → Draft a new
    release*, or with the GitHub CLI:
    ```
