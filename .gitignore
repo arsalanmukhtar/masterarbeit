@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Built artefacts: the data file and plugin ZIPs are published as GitHub release assets, not committed
+data/*.gpkg
+dist/
+
+# Database dumps and local settings
+*.backup
+config.ini
+
+# Editors
+.vscode/
+.idea/

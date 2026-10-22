@@ -1,0 +1,20 @@
+[general]
+name=CenGeo BW
+qgisMinimumVersion=3.22
+qgisMaximumVersion=4.99
+description=Census data dashboard for all Gemeinden of Baden-Württemberg
+about=Charts, Gemeinde / Kreis / Land comparisons, PDF reports and thematic map layers for official statistics (demography, education, forecasts, living, tourism, employment) of every Gemeinde in Baden-Württemberg. The data ships with the plugin as a GeoPackage, so no database or internet connection is needed (except for the OpenStreetMap basemap). Statistical data: Statistisches Landesamt Baden-Württemberg; boundaries: LGL BW; both under Datenlizenz Deutschland – Namensnennung – Version 2.0. See DATA_LICENSE.md.
+version=2.0.0
+author=Muhammad Arsalan Mukhtar
+email=32mumu1mpg@hft-stuttgart.de
+repository=https://github.com/arsalanmukhtar/masterarbeit
+tracker=https://github.com/arsalanmukhtar/masterarbeit/issues
+homepage=https://github.com/arsalanmukhtar/masterarbeit
+tags=census,statistics,baden-württemberg,gemeinde,dashboard,charts,report
+category=Plugins
+icon=icon.png
+experimental=False
+deprecated=False
+changelog=
+    2.0.0 Rewritten as a modular plugin for QGIS 3.22 to 4.x (Qt5 and Qt6); data bundled as a GeoPackage instead of a PostgreSQL server; window adapts to the screen size; searchable Gemeinde lists; map click identifies a Gemeinde; thematic layers as GeoPackage or Shapefile; no extra Python packages needed.
+    1.0 Thesis version (PostgreSQL based).
