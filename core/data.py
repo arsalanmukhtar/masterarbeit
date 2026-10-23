@@ -11,11 +11,14 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from .labels import COLUMN_LABELS, TABLE_LABELS, TITLE_LABELS, tidy
 from .models import (DIMENSION_COLUMNS, HIDDEN_COLUMNS, KEY_COLUMNS, LEVELS, Chart, ChartQuery, Gemeinde,
                      Series, TableSchema)
 
 GEMEINDE_LAYER = "gemeinde_shape"
 AGGREGATES = ("SUM", "AVG")
+POPULATION_TABLE = "demography_pop_dev_gmnd"
+AVERAGE_AGE_TABLE = "demography_avg_age_gmnd"
 
 # Columns of the boundary layer shown in the Spatial tab, with their display names
 GEMEINDE_DETAIL_COLUMNS = (
@@ -35,6 +38,16 @@ class DataError(Exception):
     """The GeoPackage is missing, unreadable or does not have the expected content."""
 
 
+def _clean_title(title: str, base: str) -> str:
+    """"Average Age in Gemeinde" becomes "Average Age"; the level is shown by the tab instead."""
+    if base in TITLE_LABELS:
+        return TITLE_LABELS[base]
+    for suffix in (" in Gemeinde", " in Kreis", " in Region"):
+        if title.endswith(suffix):
+            return title[:-len(suffix)]
+    return title
+
+
 def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
@@ -48,7 +61,9 @@ class CensusData:
             self._db = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True)
             self.attribute_labels: Dict[str, str] = dict(self._rows("SELECT attribute, description FROM attributes"))
             self.charts: List[Chart] = [
-                Chart(*row) for row in self._rows("SELECT table_name, category, base, level, title FROM charts ORDER BY category, title")
+                Chart(table, category, base, level, _clean_title(title, base))
+                for table, category, base, level, title in self._rows(
+                    "SELECT table_name, category, base, level, title FROM charts ORDER BY category, title")
             ]
             self.gemeinden: List[Gemeinde] = [
                 Gemeinde(*row)
@@ -70,8 +85,11 @@ class CensusData:
 
     # --- Catalog -------------------------------------------------------------------------------
 
-    def label(self, column: str) -> str:
-        return self.attribute_labels.get(column, column)
+    def label(self, column: str, table: Optional[str] = None) -> str:
+        """Display name of a column; pass the table where a column's meaning depends on it."""
+        base = table.rsplit("_", 1)[0] if table else None
+        label = TABLE_LABELS.get(base, {}).get(column) or COLUMN_LABELS.get(column)
+        return label or tidy(self.attribute_labels.get(column, column))
 
     def gemeinde(self, key: int) -> Optional[Gemeinde]:
         return self._gemeinden_by_key.get(key)
@@ -165,17 +183,21 @@ class CensusData:
         rows = self.grouped_rows(chart.table, query.x, [query.y], key, query.filters, query.age_range)
         return Series(label, [row[0] for row in rows], [row[1] for row in rows])
 
-    def area_values(self, table: str, column: str, aggregate: str = "SUM") -> Tuple[Dict[int, float], Optional[object]]:
-        """One value per Gemeinde for a thematic map, using the latest year when the table has years."""
+    def area_values(self, table: str, column: str, aggregate: str = "SUM",
+                    year: Optional[object] = None) -> Tuple[Dict[int, float], Optional[object]]:
+        """One value per Gemeinde for a thematic map: for the given year, or the latest one when the
+        table has years. Other dimensions (age, school type, ...) are combined with the aggregate."""
         schema = self.schema(table)
         self._check_columns(schema, [column])
         if aggregate not in AGGREGATES or schema.key_column != "g_key":
             raise DataError(f"Cannot map {table}.{column}")
-        year = None
         where, params = "", []
         if "year" in schema.dimensions:
-            year = self._rows(f"SELECT year FROM {_quote(table)} GROUP BY year ORDER BY MIN(id) DESC LIMIT 1")[0][0]
+            if year is None:
+                year = self._rows(f"SELECT year FROM {_quote(table)} GROUP BY year ORDER BY MIN(id) DESC LIMIT 1")[0][0]
             where, params = " WHERE year = ?", [year]
+        else:
+            year = None
         rows = self._rows(f"SELECT g_key, {aggregate}({_quote(column)}) FROM {_quote(table)}{where} GROUP BY g_key", params)
         return {key: value for key, value in rows if value is not None}, year
 
@@ -184,7 +206,32 @@ class CensusData:
         rows = self._rows(f"SELECT {columns} FROM {GEMEINDE_LAYER} WHERE g_key = ?", (key,))
         if not rows:
             return []
-        return [(label, value) for (_, label), value in zip(GEMEINDE_DETAIL_COLUMNS, rows[0])]
+        details = [(label, value) for (_, label), value in zip(GEMEINDE_DETAIL_COLUMNS, rows[0])]
+        # The creation timestamp is shown as a date
+        return [(label, str(value)[:10] if label == "Created" and value else value) for label, value in details]
+
+    def profile(self, key: int) -> Dict[str, object]:
+        """Headline figures for a Gemeinde: latest population, its change over ten years, area,
+        density and average age. Keys are missing when the data has no value."""
+        profile: Dict[str, object] = {}
+        if POPULATION_TABLE in self._tables:
+            rows = self._rows(f"SELECT year, pop_tot, area_ha, pop_den_pekm FROM {POPULATION_TABLE} "
+                              "WHERE g_key = ? AND pop_tot IS NOT NULL ORDER BY year", (key,))
+            if rows:
+                year, population, area, density = rows[-1]
+                profile.update(year=year, population=population, density=density)
+                if area:
+                    profile["area_km2"] = area / 100
+                earlier = [row for row in rows if row[0] == year - 10]
+                if earlier and earlier[0][1]:
+                    profile["change_year"] = year - 10
+                    profile["change_percent"] = (population - earlier[0][1]) / earlier[0][1] * 100
+        if AVERAGE_AGE_TABLE in self._tables:
+            rows = self._rows(f"SELECT year, pop_tot FROM {AVERAGE_AGE_TABLE} WHERE g_key = ? AND pop_tot IS NOT NULL "
+                              "ORDER BY year DESC LIMIT 1", (key,))
+            if rows:
+                profile["age_year"], profile["average_age"] = rows[0]
+        return profile
 
     def has_boundary(self, key: int) -> bool:
         return bool(self._rows(f"SELECT 1 FROM {GEMEINDE_LAYER} WHERE g_key = ?", (key,)))

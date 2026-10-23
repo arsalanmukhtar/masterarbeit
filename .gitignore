@@ -4,6 +4,9 @@ __pycache__/
 
 # Built artefacts: the data file and plugin ZIPs are published as GitHub release assets, not committed
 data/*.gpkg
+# SQLite side files that QGIS creates while a GeoPackage is open
+*.gpkg-wal
+*.gpkg-shm
 dist/
 
 # Database dumps and local settings

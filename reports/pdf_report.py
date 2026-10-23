@@ -2,6 +2,7 @@
 """Multi-page A4 PDF reports made of title, map, table and chart pages."""
 from __future__ import annotations
 
+import datetime
 import os
 import re
 import textwrap
@@ -10,17 +11,25 @@ from typing import Optional, Sequence
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import Figure
 from matplotlib.image import imread
+from matplotlib.lines import Line2D
 
-from ..charts.plotting import FONT_FAMILY, draw_bar_chart, format_number, reserve_bottom
+from ..charts.plotting import (AXIS, FONT_FAMILY, GRID, INK, INK_SECONDARY, MUTED, SERIES_COLORS, SURFACE, chart_kind,
+                               draw_chart, draw_small_multiples, format_number, render_static, reserve_margins)
 from ..core.models import Series
 
 PAGE_SIZE = (11.69, 8.27)  # A4 landscape, inches
-ROWS_PER_PAGE = 26
+ROWS_PER_PAGE = 30
+TITLE_SPACE = 0.12   # share of the page height kept for the page title
+FOOTER_SPACE = 0.04  # share kept for the credit line
 
 
 def safe_file_name(name: str) -> str:
     # Gemeinde names such as Lahr/Schwarzwald contain characters that are not allowed in file names
     return re.sub(r'[<>:"/\\|?*]', "-", name).strip()
+
+
+def _text(figure, x, y, text, size=9, color=INK, weight="normal", **kwargs):
+    return figure.text(x, y, text, fontsize=size, color=color, fontweight=weight, fontfamily=FONT_FAMILY, **kwargs)
 
 
 class PdfReport:
@@ -41,67 +50,100 @@ class PdfReport:
         self._pdf.close()
         return False
 
+    def _page_figure(self, title: str = "", subtitle: str = "") -> Figure:
+        figure = Figure(figsize=PAGE_SIZE)
+        figure.set_facecolor(SURFACE)
+        if title:
+            _text(figure, 0.04, 0.955, textwrap.fill(title, 110), size=14, weight="semibold", va="top")
+        if subtitle:
+            _text(figure, 0.04, 0.905, textwrap.fill(subtitle, 150), size=9.5, color=MUTED, va="top")
+        return figure
+
     def _save(self, figure: Figure):
         self._page += 1
-        figure.text(0.99, 0.01, str(self._page), ha="right", va="bottom", fontsize=7, color="#777777")
+        _text(figure, 0.96, 0.018, str(self._page), size=7.5, color=MUTED, ha="right", va="bottom")
         if self.credits:
-            figure.text(0.01, 0.01, " · ".join(self.credits), ha="left", va="bottom", fontsize=6, color="#777777")
-        self._pdf.savefig(figure)
+            _text(figure, 0.04, 0.018, " · ".join(self.credits), size=6.5, color=MUTED, ha="left", va="bottom")
+        self._pdf.savefig(figure, facecolor=figure.get_facecolor())
 
     def title_page(self, title: str, subtitle: str = ""):
-        figure = Figure(figsize=PAGE_SIZE)
-        figure.text(0.5, 0.55, textwrap.fill(title, 60), ha="center", va="center", fontsize=22, fontweight="bold",
-                    family=FONT_FAMILY)
+        figure = self._page_figure()
+        figure.add_artist(Line2D([0.08, 0.08], [0.42, 0.62], color=SERIES_COLORS[0], linewidth=4,
+                                 transform=figure.transFigure))
+        _text(figure, 0.1, 0.6, "CenGeo BW", size=11, color=SERIES_COLORS[0], weight="semibold", va="top")
+        _text(figure, 0.1, 0.555, textwrap.fill(title, 55), size=26, weight="bold", va="top")
         if subtitle:
-            figure.text(0.5, 0.42, subtitle, ha="center", va="center", fontsize=12, color="#555555", family=FONT_FAMILY)
+            _text(figure, 0.1, 0.455, subtitle, size=13, color=INK_SECONDARY, va="top")
+        _text(figure, 0.1, 0.25, f"Created {datetime.date.today():%d.%m.%Y}", size=9, color=MUTED)
         self._save(figure)
 
-    def image_page(self, title: str, image_path: str):
-        figure = Figure(figsize=PAGE_SIZE)
-        axes = figure.add_axes([0.05, 0.06, 0.9, 0.84])
+    def image_page(self, title: str, image_path: str, subtitle: str = ""):
+        figure = self._page_figure(title, subtitle)
+        axes = figure.add_axes([0.04, 0.07, 0.92, 0.8])
         axes.imshow(imread(image_path))
         axes.axis("off")
-        figure.suptitle(title, fontsize=14, fontweight="bold", family=FONT_FAMILY)
         self._save(figure)
 
-    def table_pages(self, title: str, headers: Sequence[str], rows: Sequence[Sequence], label_columns: int = 1):
-        """The data as tables, split across pages. The first label_columns (year, age, ...) are printed as they
-        are; in value columns zero is shown as "-" like the printed statistics."""
+    def table_pages(self, title: str, headers: Sequence[str], rows: Sequence[Sequence], subtitle: str = "",
+                    label_columns: int = 1):
+        """The data as tables split across pages. The first label_columns (year, age, ...) are printed as
+        they are; in value columns zero is shown as "-" like the printed statistics."""
         def cell(index, value):
             if index < label_columns or not isinstance(value, (int, float)):
                 return "" if value is None else str(value)
             return "-" if value == 0 else format_number(value)
 
         cells = [[cell(index, value) for index, value in enumerate(row)] for row in rows]
-        wrapped_headers = [textwrap.fill(header, 18) for header in headers]
-        for start in range(0, max(len(cells), 1), ROWS_PER_PAGE):
-            chunk = cells[start:start + ROWS_PER_PAGE]
-            figure = Figure(figsize=PAGE_SIZE)
-            figure.suptitle(textwrap.fill(title, 110), fontsize=12, fontweight="bold", family=FONT_FAMILY)
-            axes = figure.add_axes([0.03, 0.06, 0.94, 0.84])
+        headers = [textwrap.fill(header, 20) for header in headers]
+        pages = max(1, -(-len(cells) // ROWS_PER_PAGE))
+        # Spread rows evenly, so 31 rows become 16 and 15 rather than 30 and a lone row
+        per_page = max(1, -(-len(cells) // pages))
+        for page in range(pages):
+            chunk = cells[page * per_page:(page + 1) * per_page]
+            suffix = f" ({page + 1} of {pages})" if pages > 1 else ""
+            figure = self._page_figure(title + suffix, subtitle)
+            axes = figure.add_axes([0.04, 0.08, 0.92, 0.78])
             axes.axis("off")
             if not chunk:
-                axes.text(0.5, 0.5, "No data", ha="center", va="center")
+                axes.text(0.5, 0.5, "No data", ha="center", va="center", fontfamily=FONT_FAMILY, color=MUTED)
                 self._save(figure)
                 return
-            table = axes.table(cellText=chunk, colLabels=wrapped_headers, cellLoc="left", loc="upper center")
+            # Right-aligned so the digits of every column line up
+            table = axes.table(cellText=chunk, colLabels=headers, cellLoc="right", colLoc="right", loc="upper center")
             table.auto_set_font_size(False)
-            table.set_fontsize(8)
-            for (row, _), cell in table.get_celld().items():
-                cell.set_edgecolor("none")
-                cell.set_height(0.032 if row else 0.07)
+            table.set_fontsize(8.5)
+            for (row, _), cell_artist in table.get_celld().items():
+                cell_artist.visible_edges = "B"
+                cell_artist.set_height(0.032 if row else 0.075)
                 if row == 0:
-                    cell.set_text_props(weight="bold", family=FONT_FAMILY)
+                    cell_artist.set_edgecolor(AXIS)
+                    cell_artist.set_facecolor(SURFACE)
+                    cell_artist.set_text_props(weight="semibold", family=FONT_FAMILY, color=INK_SECONDARY)
                 else:
-                    cell.set_text_props(family=FONT_FAMILY)
-                    cell.set_facecolor("#f0f0f0" if row % 2 else "#ffffff")
+                    cell_artist.set_edgecolor(GRID)
+                    cell_artist.set_facecolor("#f7f7f4" if row % 2 == 0 else SURFACE)
+                    cell_artist.set_text_props(family=FONT_FAMILY, color=INK)
             self._save(figure)
 
-    def chart_page(self, title: str, series: Sequence[Series], x_label: str, y_label: str,
-                   note: Optional[str] = None, image_name: Optional[str] = None):
-        figure = Figure(figsize=PAGE_SIZE)
-        draw_bar_chart(figure, series, title, x_label, y_label, note)
-        reserve_bottom(figure, 0.04)
+    def chart_page(self, title: str, series: Sequence[Series], x_label: str, y_label: str, x_dimension: str,
+                   subtitle: str = "", baseline: Optional[float] = None, image_name: Optional[str] = None):
+        figure = self._page_figure(title, subtitle)
+        kind = chart_kind(x_dimension, [x for item in series for x in item.x])
+        handle = draw_chart(figure, series, x_label, y_label, kind, baseline=baseline, max_x_labels=24)
+        reserve_margins(figure, top=TITLE_SPACE, bottom=FOOTER_SPACE)
+        render_static(figure, handle)
+        self._finish_chart(figure, image_name)
+
+    def multiples_page(self, title: str, panels: Sequence[Series], x_label: str, x_dimension: str,
+                       subtitle: str = "", image_name: Optional[str] = None):
+        figure = self._page_figure(title, subtitle)
+        draw_small_multiples(figure, panels, x_label, x_dimension, columns=3 if len(panels) > 4 else 2)
+        reserve_margins(figure, top=TITLE_SPACE, bottom=FOOTER_SPACE)
+        render_static(figure)
+        self._finish_chart(figure, image_name)
+
+    def _finish_chart(self, figure: Figure, image_name: Optional[str]):
         self._save(figure)
         if self.image_dir and image_name:
-            figure.savefig(os.path.join(self.image_dir, safe_file_name(image_name) + ".png"), dpi=200)
+            figure.savefig(os.path.join(self.image_dir, safe_file_name(image_name) + ".png"), dpi=200,
+                           facecolor=figure.get_facecolor())

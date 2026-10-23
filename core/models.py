@@ -58,6 +58,11 @@ class ChartQuery:
     y: str
     filters: Dict[str, object] = field(default_factory=dict)
     age_range: Optional[Tuple[int, int]] = None
+    values: List[str] = field(default_factory=list)  # several values on one chart; y is the first
+
+    def __post_init__(self):
+        if not self.values:
+            self.values = [self.y]
 
 
 @dataclass

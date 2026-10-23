@@ -8,11 +8,13 @@ import os
 from typing import Optional
 
 from qgis.core import QgsSettings
+from qgis.PyQt.QtCore import QTimer
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
 
 from .compat import QAction
 from .core.data import CensusData, DataError
+from .download import DATA_SIZE_MB, download_data, downloaded_path
 
 PLUGIN_DIR = os.path.dirname(__file__)
 BUNDLED_DATA = os.path.join(PLUGIN_DIR, "data", "cengeobw.gpkg")
@@ -65,32 +67,56 @@ class CenGeoBWPlugin:
             self.data = self._open_data()
             if self.data is None:
                 return
-            from .ui.main_window import DashboardWindow  # imported here so a missing matplotlib cannot break loading
-            self.window = DashboardWindow(self.data, plugin_version(), self.iface.mainWindow())
+            from .ui.main_window import DashboardWindow
+            self.window = DashboardWindow(self.data, plugin_version(), self.iface.mainWindow(), self.iface)
+            # Show the window with its loading page first, then load the charts and maps
+            self.window.showMaximized()
+            self.window.raise_()
+            self.window.activateWindow()
+            QTimer.singleShot(50, self.window.load)
+            return
+        if self.window.isMinimized():
+            self.window.showMaximized()
         self.window.show()
         self.window.raise_()
         self.window.activateWindow()
 
     def _open_data(self) -> Optional[CensusData]:
-        """The bundled GeoPackage, or one the user picked earlier (e.g. a newer data release)."""
+        """The data file: one the user chose, a bundled one (development checkout or offline ZIP), or the
+        copy downloaded into the QGIS profile. Without any, the user is offered the download."""
         settings = QgsSettings()
+        parent = self.iface.mainWindow()
         chosen = settings.value(DATA_PATH_SETTING, "")
-        if chosen and os.path.isfile(chosen):
-            path = chosen
-        else:
-            path = BUNDLED_DATA
+        candidates = [chosen] if chosen else []
+        candidates += [BUNDLED_DATA, downloaded_path()]
+        path = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
         while True:
+            if path is None:
+                path = self._ask_for_data(parent)
+                if path is None:
+                    return None
             try:
                 return CensusData(path)
             except DataError as e:
-                answer = QMessageBox.question(
-                    self.iface.mainWindow(), TITLE,
-                    f"{e}\n\nThe census data file (cengeobw.gpkg) is part of the plugin ZIP from the GitHub "
-                    "releases page. Do you want to choose the file yourself?")
-                if answer != QMessageBox.StandardButton.Yes:
-                    return None
-                path, _ = QFileDialog.getOpenFileName(self.iface.mainWindow(), "Open CenGeo BW data", "",
-                                                      "GeoPackage (*.gpkg)")
-                if not path:
-                    return None
-                settings.setValue(DATA_PATH_SETTING, path)
+                QMessageBox.critical(parent, TITLE, str(e))
+                path = None
+
+    def _ask_for_data(self, parent) -> Optional[str]:
+        box = QMessageBox(parent)
+        box.setWindowTitle(TITLE)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(f"The census data ({DATA_SIZE_MB} MB) is downloaded once and then works offline.")
+        box.setInformativeText("Download it now, or choose a CenGeo BW data file (cengeobw.gpkg) you already have.")
+        download = box.addButton("Download", QMessageBox.ButtonRole.AcceptRole)
+        choose = box.addButton("Choose file…", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(download)
+        (getattr(box, "exec", None) or box.exec_)()
+        if box.clickedButton() is download:
+            return download_data(parent)
+        if box.clickedButton() is choose:
+            path, _ = QFileDialog.getOpenFileName(parent, "Open CenGeo BW data", "", "GeoPackage (*.gpkg)")
+            if path:
+                QgsSettings().setValue(DATA_PATH_SETTING, path)
+                return path
+        return None
