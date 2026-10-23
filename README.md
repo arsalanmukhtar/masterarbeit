@@ -15,7 +15,7 @@ original PostgreSQL database into the GeoPackage.
 **From the QGIS plugin repository:** *Plugins → Manage and Install Plugins → All*, search for
 *CenGeo BW* and click *Install Plugin*. Updates then appear in the same dialog.
 
-**From a ZIP file:** download `CenGeoBW-2.1.2.zip` from the
+**From a ZIP file:** download `CenGeoBW-2.1.3.zip` from the
 [Releases page](https://github.com/arsalanmukhtar/masterarbeit/releases), then in QGIS open
 *Plugins → Manage and Install Plugins → Install from ZIP*.
 
@@ -148,13 +148,13 @@ simplifies the boundaries (about 10 m, `--tolerance`), adds indexes and checks t
 
 1. Raise `version` in `metadata.txt` and add a `changelog` line. Versions count up in the last digit from
    0 to 9 and then move on to the next minor version: 2.1.0, 2.1.1, ..., 2.1.9, 2.2.0.
-2. Run `python tools/package_plugin.py`. It writes `dist/CenGeoBW-2.1.2.zip` (without data, for the QGIS
+2. Run `python tools/package_plugin.py`. It writes `dist/CenGeoBW-2.1.3.zip` (without data, for the QGIS
    plugin repository), named after the version in `metadata.txt`. `--with-data` adds the data file for an
    offline installation.
 3. Create a GitHub release for the version and attach the ZIP: on GitHub via *Releases → Draft a new
    release*, or with the GitHub CLI:
    ```
-   gh release create v2.1.2 dist/CenGeoBW-2.1.2.zip --repo arsalanmukhtar/masterarbeit --title "CenGeo BW 2.1.2" --notes-file notes.md
+   gh release create v2.1.3 dist/CenGeoBW-2.1.3.zip --repo arsalanmukhtar/masterarbeit --title "CenGeo BW 2.1.3" --notes-file notes.md
    ```
 4. Upload the same ZIP at <https://plugins.qgis.org/plugins/> (log in with your OSGeo ID). After a staff
    member approves it, QGIS users get the update in the plugin manager.
