@@ -89,8 +89,8 @@ class DashboardWindow(QMainWindow):
             plotting.set_theme(self.theme)
             data = self.data
 
-            def map_image(keys, path):
-                return render_map_image(str(data.path), keys, path)
+            def map_image(keys, path, context_keys=None, overview=False, size=(1600, 1000)):
+                return render_map_image(str(data.path), keys, path, size, context_keys, overview)
 
             self._builders = [lambda: GemeindeTab(data, map_image), lambda: KreisLandTab(data, map_image),
                               lambda: GemeindeComparisonTab(data, map_image), lambda: SpatialTab(data, self.iface)]

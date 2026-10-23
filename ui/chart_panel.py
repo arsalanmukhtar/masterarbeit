@@ -9,21 +9,20 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from matplotlib.figure import Figure
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QMenu,
-                                 QMessageBox, QPushButton, QSizePolicy, QStackedWidget, QTableWidget, QTableWidgetItem,
-                                 QVBoxLayout, QWidget)
+                                 QMessageBox, QPushButton, QSizePolicy, QSpinBox, QStackedWidget, QTableWidget,
+                                 QTableWidgetItem, QVBoxLayout, QWidget)
 
-from ..charts.plotting import (FONT_FAMILY, KIND_LABELS, ChartHover, available_kinds, chart_kind, draw_chart,
-                               draw_message, format_number, index_series, light_charts, limit_bar_width,
+from ..charts.plotting import (DONUT_MAX_RINGS, FONT_FAMILY, KIND_LABELS, ChartHover, available_kinds, chart_kind,
+                               default_rings, donut_rings, draw_chart, draw_message, format_number, index_series, light_charts, limit_bar_width,
                                render_static, reserve_margins)
 from ..compat import figure_canvas_class
 from ..core.data import CensusData
 from ..core.models import Gemeinde, Series
-from ..core.style import INK, MUTED, TREND_DOWN, TREND_STRONG_DOWN, TREND_STRONG_UP, TREND_UP
+from ..core.style import INK, MUTED, TREND_HELP, trend_arrow
 from .inputs import Card, Segmented, compact_combo, label, refill
 
 FigureCanvas = figure_canvas_class()
 INDEX_LABEL = "Index (first year = 100)"
-TREND_STEP = 2.0  # percent: above it the change counts as strong
 INDEX_KINDS = ("line", "area", "bar")
 
 
@@ -49,21 +48,6 @@ class StatTile(QFrame):
         self.value.setText(value)
         self.note.setText(note)
         self.setToolTip(tooltip)
-
-
-def trend_arrow(change: float) -> Tuple[str, str]:
-    """Arrow and colour for a percentage change: strong or slight growth, slight or strong decline."""
-    if change >= TREND_STEP:
-        return "▲", TREND_STRONG_UP
-    if change >= 0:
-        return "▲", TREND_UP
-    if change > -TREND_STEP:
-        return "▼", TREND_DOWN
-    return "▼", TREND_STRONG_DOWN
-
-
-TREND_HELP = (f"Green: growth of {TREND_STEP:g} % or more · Yellow: growth below {TREND_STEP:g} % · "
-              f"Orange: decline below {TREND_STEP:g} % · Red: decline of {TREND_STEP:g} % or more")
 
 
 class ProfileTiles(QWidget):
@@ -153,10 +137,10 @@ class ChartCanvas(FigureCanvas):
         self._resize_timer.timeout.connect(self._after_resize)
 
     def show_chart(self, series: Sequence[Series], x_label: str, y_label: str, kind: str,
-                   baseline: Optional[float] = None):
+                   baseline: Optional[float] = None, rings: Optional[Sequence[str]] = None):
         self.figure.clear()
         self.handle = draw_chart(self.figure, series, x_label, y_label, kind, baseline=baseline,
-                                 max_x_labels=max(4, self.width() // 75))
+                                 max_x_labels=max(4, self.width() // 75), rings=rings)
         reserve_margins(self.figure)
         self._hover.attach(self.handle)
         self.draw()
@@ -220,6 +204,8 @@ class ChartPanel(Card):
         self._view: Optional[ChartView] = None
         self._allow_index = allow_index
         self._preferred_kind: Optional[str] = None
+        # X values shown as donut rings, from the outside in; kept while other values are picked
+        self._rings: List[str] = []
 
         header = QHBoxLayout()
         header.setSpacing(8)
@@ -246,6 +232,7 @@ class ChartPanel(Card):
         for widget in (self.kind, self.scale, self.view_mode, self.export_button):
             header.addWidget(widget, 0, Qt.AlignmentFlag.AlignTop)
         self.body.addLayout(header)
+        self.body.addWidget(self._build_rings_row())
 
         self.canvas = ChartCanvas()
         self.table = DataTable()
@@ -257,6 +244,76 @@ class ChartPanel(Card):
         self.scale.changed.connect(lambda _: self._render())
         self.kind.activated.connect(self._on_kind_chosen)
 
+    def _build_rings_row(self) -> QWidget:
+        """Donut of several values: how many rings, and the X value (e.g. year) of each, from the outside in."""
+        self.rings_row = QWidget()
+        row = QHBoxLayout(self.rings_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        row.addWidget(label("Rings", "FieldName"))
+        self.ring_count = QSpinBox()
+        self.ring_count.setRange(1, DONUT_MAX_RINGS)
+        self.ring_count.setToolTip("Number of rings; each ring shows the shares in one year")
+        row.addWidget(self.ring_count)
+        self.ring_labels, self.ring_combos = [], []
+        for index in range(DONUT_MAX_RINGS):
+            caption = label("Outer" if index == 0 else f"Ring {index + 1}", "FieldName")
+            caption.setContentsMargins(8 if index == 0 else 4, 0, 0, 0)
+            combo = compact_combo(QComboBox(), 6)
+            combo.setToolTip("Outer ring" if index == 0 else f"Ring {index + 1} from the outside")
+            combo.activated.connect(lambda _, i=index: self._on_ring_chosen(i))
+            row.addWidget(caption)
+            row.addWidget(combo)
+            self.ring_labels.append(caption)
+            self.ring_combos.append(combo)
+        row.addStretch(1)
+        self.ring_count.valueChanged.connect(self._on_ring_count)
+        self.rings_row.setVisible(False)
+        return self.rings_row
+
+    def _ring_choices(self) -> List[str]:
+        view = self._view
+        if view is None or not view.composition or self.current_kind() != "donut":
+            return []
+        return donut_rings(view.series)
+
+    def _update_rings_row(self):
+        choices = self._ring_choices()
+        self.rings_row.setVisible(bool(choices))
+        if not choices:
+            return
+        self._rings = [x for x in self._rings if x in choices] or default_rings(choices, 1)
+        self.ring_count.blockSignals(True)
+        self.ring_count.setMaximum(min(DONUT_MAX_RINGS, len(choices)))
+        self.ring_count.setValue(len(self._rings))
+        self.ring_count.blockSignals(False)
+        for index, (caption, combo) in enumerate(zip(self.ring_labels, self.ring_combos)):
+            shown = index < len(self._rings)
+            caption.setVisible(shown)
+            combo.setVisible(shown)
+            if shown:
+                refill(combo, [(x, x) for x in choices], choices.index(self._rings[index]))
+
+    def _on_ring_count(self, count: int):
+        choices = self._ring_choices()
+        if count < len(self._rings):
+            self._rings = self._rings[:count]
+        else:
+            for x in default_rings(choices, count) + choices:
+                if len(self._rings) >= count:
+                    break
+                if x not in self._rings:
+                    self._rings.append(x)
+        self._update_rings_row()
+        self._render()
+
+    def _on_ring_chosen(self, index: int):
+        self._rings[index] = self.ring_combos[index].currentData()
+        self._render()
+
+    def rings(self) -> Optional[List[str]]:
+        return list(self._rings) if self.rings_row.isVisible() else None
+
     def set_scale(self, value: str):
         self.scale.set_value(value)
 
@@ -266,6 +323,7 @@ class ChartPanel(Card):
         default = self._preferred_kind if self._preferred_kind in kinds else kinds[0]
         refill(self.kind, [(KIND_LABELS[kind], kind) for kind in kinds], kinds.index(default))
         self.kind.setEnabled(len(kinds) > 1)
+        self._update_rings_row()
         self._render()
 
     def show_message(self, text: str):
@@ -277,12 +335,14 @@ class ChartPanel(Card):
         self.export_button.setEnabled(False)
         self.scale.setEnabled(False)
         self.kind.setEnabled(False)
+        self.rings_row.setVisible(False)
 
     def current_kind(self) -> str:
         return self.kind.currentData() or "line"
 
     def _on_kind_chosen(self, _index: int):
         self._preferred_kind = self.current_kind()
+        self._update_rings_row()
         self._render()
 
     def displayed(self) -> Tuple[List[Series], str, str, Optional[float]]:
@@ -302,7 +362,7 @@ class ChartPanel(Card):
         kind = self.current_kind()
         if kind == "bar":
             kind = chart_kind("", [x for item in series for x in item.x])
-        self.canvas.show_chart(series, self._view.x_label, y_label, kind, baseline)
+        self.canvas.show_chart(series, self._view.x_label, y_label, kind, baseline, self.rings())
         note = self.canvas.handle.note if self.canvas.handle else None
         self.title.setText(self._view.title)
         subtitle = " · ".join(filter(None, [subtitle, note]))
@@ -327,7 +387,8 @@ class ChartPanel(Card):
         # Saved images use the light theme, so they print well and match the PDF reports
         with light_charts():
             figure = Figure(figsize=(11, 6.2), dpi=150)
-            handle = draw_chart(figure, series, self._view.x_label, y_label, kind, baseline=baseline)
+            handle = draw_chart(figure, series, self._view.x_label, y_label, kind, baseline=baseline,
+                                rings=self.rings())
             subtitle = " · ".join(filter(None, [subtitle, handle.note]))
             figure.text(0.012, 0.975, self._view.title, ha="left", va="top", fontsize=15, fontweight="semibold",
                         color=INK, fontfamily=FONT_FAMILY)

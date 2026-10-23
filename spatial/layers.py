@@ -72,14 +72,36 @@ def style_basemap(layer: QgsRasterLayer, look: str):
     layer.triggerRepaint()
 
 
-OSM_LOOKS = (("OpenStreetMap", "standard"), ("OpenStreetMap, muted", "muted"), ("OpenStreetMap, dark", "dark"))
-NO_BASEMAP = "No basemap"
+OSM_CREDIT = "© OpenStreetMap contributors"
+OSM_LOOKS = {"OpenStreetMap": "standard", "OpenStreetMap, muted": "muted", "OpenStreetMap, dark": "dark"}
+
+# Open tile services: (URL template, highest zoom, credit to show under the map)
+TILE_SERVICES = {
+    "CARTO Positron (light)": ("https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", 20,
+                               "© OpenStreetMap contributors © CARTO"),
+    "CARTO Dark Matter (dark)": ("https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png", 20,
+                                 "© OpenStreetMap contributors © CARTO"),
+    "CARTO Voyager": ("https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png", 20,
+                      "© OpenStreetMap contributors © CARTO"),
+    "Esri World Imagery (satellite)": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 19,
+        "Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"),
+    "Esri World Topographic": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", 19,
+        "Source: Esri and its data providers"),
+    "Esri Light Gray Canvas": (
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        16, "Source: Esri, HERE, Garmin, © OpenStreetMap contributors"),
+    "OpenTopoMap": ("https://tile.opentopomap.org/{z}/{x}/{y}.png", 17,
+                    "© OpenStreetMap contributors, SRTM · Map style © OpenTopoMap (CC-BY-SA)"),
+}
 
 
 def basemap_choices() -> List[str]:
-    """Names of the basemaps that can be shown: OpenStreetMap in three looks, the XYZ tile connections set
-    up in the QGIS Browser, and the raster layers of the current project."""
-    names = [name for name, _ in OSM_LOOKS]
+    """Names of the basemaps that can be shown: OpenStreetMap in three looks, open tile services (CARTO,
+    Esri, OpenTopoMap), the XYZ tile connections set up in the QGIS Browser and the raster layers of the
+    current project."""
+    names = list(OSM_LOOKS) + list(TILE_SERVICES)
     try:
         from qgis.core import QgsXyzConnectionUtils
         names += [f"XYZ: {name}" for name in QgsXyzConnectionUtils.connectionList()]
@@ -87,14 +109,16 @@ def basemap_choices() -> List[str]:
         pass
     names += [f"Project: {layer.name()}" for layer in QgsProject.instance().mapLayers().values()
               if isinstance(layer, QgsRasterLayer)]
-    return names + [NO_BASEMAP]
+    return names
 
 
 def basemap_layer(name: str) -> Optional[QgsRasterLayer]:
     """A new basemap layer for a name from basemap_choices(), owned by the caller (not added to the project)."""
-    looks = dict(OSM_LOOKS)
-    if name in looks:
-        return osm_layer(looks[name])
+    if name in OSM_LOOKS:
+        return osm_layer(OSM_LOOKS[name])
+    if name in TILE_SERVICES:
+        url, zoom, _ = TILE_SERVICES[name]
+        return QgsRasterLayer(f"type=xyz&url={url}&zmin=0&zmax={zoom}", name, "wms")
     if name.startswith("XYZ: "):
         try:
             from qgis.core import QgsXyzConnectionUtils
@@ -108,6 +132,18 @@ def basemap_layer(name: str) -> Optional[QgsRasterLayer]:
                 # A copy, so removing the layer from the project cannot break the dashboard map
                 return layer.clone()
     return None
+
+
+def basemap_credit(name: str) -> str:
+    if name in OSM_LOOKS:
+        return f"Basemap: {OSM_CREDIT}"
+    if name in TILE_SERVICES:
+        return f"Basemap: {TILE_SERVICES[name][2]}"
+    if name.startswith("XYZ: "):
+        return f"Basemap: {name[5:]}"
+    if name.startswith("Project: "):
+        return f"Basemap: {name[9:]}"
+    return f"Basemap: {name}"
 
 
 def to_web_mercator(extent: QgsRectangle, source_crs: QgsCoordinateReferenceSystem, padding: float = 0.08) -> QgsRectangle:
@@ -198,22 +234,45 @@ def save_default_style(layer: QgsVectorLayer, path: str):
     layer.saveNamedStyle(os.path.splitext(path)[0] + ".qml")
 
 
-def render_map_image(data_path: str, keys: Sequence[int], path: str, size=(1600, 1000)) -> Optional[str]:
-    """Render the given Gemeinden over the basemap to a PNG for the PDF report."""
-    highlight = boundary_layer(data_path, "Selection", HIGHLIGHT_STYLE, keys)
+CONTEXT_STYLE = {"color": "235,104,52,22", "outline_color": "235,104,52,150", "outline_width": "0.35"}
+OVERVIEW_STYLE = {"color": "225,224,217,255", "outline_color": "255,255,255,255", "outline_width": "0.12"}
+OVERVIEW_CONTEXT_STYLE = {"color": "246,196,170,255", "outline_color": "255,255,255,255", "outline_width": "0.12"}
+OVERVIEW_HIGHLIGHT_STYLE = {"color": "235,104,52,255", "outline_color": "200,80,30,255", "outline_width": "0.3"}
+
+
+def render_map_image(data_path: str, keys: Sequence[int], path: str, size=(1600, 1000),
+                     context_keys: Optional[Sequence[int]] = None, overview: bool = False
+                     ) -> Optional[Tuple[str, Tuple[float, float, float, float]]]:
+    """Map image for PDF reports, rendered at exactly size so it fills its frame. Returns the image path and
+    the extent shown (xmin, ymin, xmax, ymax in EPSG:3857), which reports use for the scale bar and the
+    graticule. The local map shows the given Gemeinden over the basemap, with an optional surrounding area
+    (e.g. their Kreis) shaded lightly; the overview shows all of Baden-Württemberg without basemap."""
+    if overview:
+        highlight = boundary_layer(data_path, "Selection", OVERVIEW_HIGHLIGHT_STYLE, keys)
+        context = boundary_layer(data_path, "Context", OVERVIEW_CONTEXT_STYLE, context_keys) if context_keys else None
+        state = boundary_layer(data_path, "Baden-Württemberg", OVERVIEW_STYLE)
+        layers = [highlight] + ([context] if context else []) + [state]
+        extent_layer, padding = state, 0.03
+    else:
+        highlight = boundary_layer(data_path, "Selection", HIGHLIGHT_STYLE, keys)
+        context = boundary_layer(data_path, "Context", CONTEXT_STYLE, context_keys) if context_keys else None
+        outlines = boundary_layer(data_path, "Gemeinden")
+        basemap = osm_layer("muted")
+        layers = [highlight] + ([context] if context else []) + [outlines] + ([basemap] if basemap.isValid() else [])
+        extent_layer, padding = highlight, 0.45
     if not highlight.isValid() or highlight.featureCount() == 0:
         return None
-    basemap = osm_layer()
     settings = QgsMapSettings()
-    settings.setLayers([highlight, basemap] if basemap.isValid() else [highlight])
+    settings.setLayers(layers)
     settings.setDestinationCrs(WEB_MERCATOR)
     settings.setOutputSize(QSize(*size))
-    settings.setBackgroundColor(QColor(255, 255, 255))
-    settings.setExtent(to_web_mercator(highlight.extent(), highlight.crs(), padding=0.15))
+    settings.setBackgroundColor(QColor(255, 255, 255) if overview else QColor(252, 252, 251))
+    settings.setExtent(to_web_mercator(extent_layer.extent(), extent_layer.crs(), padding=padding))
+    shown = settings.visibleExtent()
     job = QgsMapRendererParallelJob(settings)
     job.start()
     job.waitForFinished()
     image = job.renderedImage()
     if image.isNull() or not image.save(path, "PNG"):
         return None
-    return path
+    return path, (shown.xMinimum(), shown.yMinimum(), shown.xMaximum(), shown.yMaximum())

@@ -8,5 +8,5 @@ STATISTICS_CREDIT = "Statistical data: Statistisches Landesamt Baden-Württember
 BOUNDARY_CREDIT = "Gemeinde boundaries: Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0 (simplified)"
 BASEMAP_CREDIT = "Basemap: © OpenStreetMap contributors"
 
-SHORT_CREDIT = "Data: Statistisches Landesamt BW · LGL BW (dl-de/by-2-0) · Basemap © OpenStreetMap contributors"
+SHORT_CREDIT = "Data: Statistisches Landesamt BW · LGL BW (dl-de/by-2-0)"
 REPORT_CREDITS = (STATISTICS_CREDIT, BOUNDARY_CREDIT, BASEMAP_CREDIT)

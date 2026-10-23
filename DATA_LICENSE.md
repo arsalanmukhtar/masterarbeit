@@ -23,10 +23,18 @@ This file covers the data shipped in `data/cengeobw.gpkg` and everything the plu
 | Attribution | Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0 |
 | Changes | Geometries simplified with a tolerance of about 10 m (0.0001°); borders shared by neighbouring Gemeinden were kept identical. |
 
-## Basemap
+## Basemaps
 
-The Spatial Query tab and the map page of the PDF reports load map tiles from OpenStreetMap
-(`tile.openstreetmap.org`) while the plugin is running. No OpenStreetMap data is stored in this repository.
+The maps load tiles from online services while the plugin is running; no tiles are stored in this
+repository. The PDF reports always use OpenStreetMap. In the Spatial Query tab the basemap can be chosen,
+and the credit of the chosen service is shown under the map:
+
+- OpenStreetMap (`tile.openstreetmap.org`): © OpenStreetMap contributors
+- CARTO Positron, Dark Matter and Voyager: © OpenStreetMap contributors © CARTO; free use is subject to the
+  CARTO basemap terms, <https://carto.com/basemaps>
+- Esri World Imagery, World Topographic and Light Gray Canvas: Esri and its data providers; use is subject
+  to the Esri terms of use, <https://www.esri.com/en-us/legal/terms/full-master-agreement>
+- OpenTopoMap: © OpenStreetMap contributors, SRTM, map style © OpenTopoMap (CC-BY-SA)
 
 - © OpenStreetMap contributors, data under the Open Database License (ODbL), <https://www.openstreetmap.org/copyright>
 - The tile servers are run by volunteers and subject to the tile usage policy,

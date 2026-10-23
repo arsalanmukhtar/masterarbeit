@@ -80,3 +80,17 @@ TREND_STRONG_UP = "#0ca30c"
 TREND_UP = "#fab219"
 TREND_DOWN = "#ec835a"
 TREND_STRONG_DOWN = "#d03b3b"
+TREND_STEP = 2.0  # percent (or points): above it a change counts as strong
+TREND_HELP = (f"Green: growth of {TREND_STEP:g} % or more · Yellow: growth below {TREND_STEP:g} % · "
+              f"Orange: decline below {TREND_STEP:g} % · Red: decline of {TREND_STEP:g} % or more")
+
+
+def trend_arrow(change: float):
+    """Arrow and colour for a change: strong or slight growth, slight or strong decline."""
+    if change >= TREND_STEP:
+        return "▲", TREND_STRONG_UP
+    if change >= 0:
+        return "▲", TREND_UP
+    if change > -TREND_STEP:
+        return "▼", TREND_DOWN
+    return "▼", TREND_STRONG_DOWN

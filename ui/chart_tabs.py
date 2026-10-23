@@ -19,15 +19,17 @@ from .inputs import Card, ChartSelector, GemeindeDetails, GemeindePicker, label
 SIDE_PANEL_MIN_WIDTH = 280
 
 
-def side_panel(*widgets: QWidget) -> QScrollArea:
-    """Cards stacked at the top of a scrollable column, so small screens can still reach everything."""
+def side_panel(*widgets: QWidget, fill_last: bool = False) -> QScrollArea:
+    """Cards stacked at the top of a scrollable column, so small screens can still reach everything.
+    With fill_last the last card takes the height left over below the others."""
     panel = QWidget()
     layout = QVBoxLayout(panel)
     layout.setContentsMargins(0, 0, 8, 0)
     layout.setSpacing(12)
-    for widget in widgets:
-        layout.addWidget(widget)
-    layout.addStretch(1)
+    for index, widget in enumerate(widgets):
+        layout.addWidget(widget, 1 if fill_last and index == len(widgets) - 1 else 0)
+    if not fill_last:
+        layout.addStretch(1)
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

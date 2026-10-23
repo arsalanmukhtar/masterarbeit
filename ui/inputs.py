@@ -5,13 +5,15 @@ from __future__ import annotations
 from collections import Counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from qgis.PyQt.QtCore import Qt, pyqtSignal
-from qgis.PyQt.QtWidgets import (QButtonGroup, QComboBox, QCompleter, QFormLayout, QFrame, QHBoxLayout, QLabel,
+from qgis.PyQt.QtCore import QEvent, QRectF, QSize, Qt, pyqtSignal
+from qgis.PyQt.QtGui import QColor, QPainter, QPainterPath, QPen
+from qgis.PyQt.QtWidgets import (QAbstractItemView, QButtonGroup, QStyle, QStyledItemDelegate, QComboBox, QCompleter, QFormLayout, QFrame, QHBoxLayout, QLabel,
                                  QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QSpinBox,
                                  QVBoxLayout, QWidget)
 
 from ..core.data import CensusData
 from ..core.models import Chart, ChartQuery, Gemeinde
+from .theme import CURRENT_THEME
 
 MAX_VALUES = 8  # one per series colour
 
@@ -175,6 +177,77 @@ class GemeindeDetails(QWidget):
             value.setText("" if gemeinde is None else str(getattr(gemeinde, attribute)))
 
 
+def _is_checked(state) -> bool:
+    # PyQt5 gives the check state as an int, PyQt6 as an enum
+    return getattr(state, "value", state) == 2
+
+
+class CheckRowDelegate(QStyledItemDelegate):
+    """Rows of a value list, painted directly so they look the same on every system: a rounded checkbox
+    with a tick, then the text. A click anywhere on a row toggles it."""
+
+    BOX = 16
+    ROW_PADDING = 12
+
+    def sizeHint(self, option, index):
+        width = option.fontMetrics.horizontalAdvance(index.data() or "") + self.BOX + 28
+        return QSize(width, option.fontMetrics.height() + self.ROW_PADDING)
+
+    def paint(self, painter, option, index):
+        t = CURRENT_THEME["tokens"]
+        enabled = bool(index.flags() & Qt.ItemFlag.ItemIsEnabled)
+        checked = _is_checked(index.data(Qt.ItemDataRole.CheckStateRole))
+        hovered = enabled and bool(option.state & QStyle.StateFlag.State_MouseOver)
+        row = QRectF(option.rect).adjusted(1, 1, -1, -1)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if hovered:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(t["hover"]))
+            painter.drawRoundedRect(row, 5, 5)
+
+        box = QRectF(row.left() + 8, row.center().y() - self.BOX / 2, self.BOX, self.BOX)
+        if checked:
+            colour = QColor(t["accent_hover"] if hovered else t["accent"]) if enabled else QColor(t["field_border_hover"])
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(colour)
+            painter.drawRoundedRect(box, 4, 4)
+            tick = QPainterPath()
+            tick.moveTo(box.left() + 4.2, box.top() + 8.3)
+            tick.lineTo(box.left() + 6.9, box.top() + 11)
+            tick.lineTo(box.left() + 11.9, box.top() + 5.3)
+            pen = QPen(QColor("#ffffff"), 2)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(tick)
+        else:
+            border = QColor(t["accent"] if hovered else t["field_border_hover"] if enabled else t["field_border"])
+            painter.setPen(QPen(border, 1.3))
+            painter.setBrush(QColor(t["field"] if enabled else t["plane"]))
+            painter.drawRoundedRect(box.adjusted(0.65, 0.65, -0.65, -0.65), 3.5, 3.5)
+
+        text_rect = row.adjusted(self.BOX + 18, 0, -6, 0)
+        painter.setPen(QColor(t["ink"] if enabled else t["muted"]))
+        painter.setFont(option.font)
+        text = option.fontMetrics.elidedText(index.data() or "", Qt.TextElideMode.ElideRight, int(text_rect.width()))
+        painter.drawText(text_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), text)
+        painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        if not index.flags() & Qt.ItemFlag.ItemIsEnabled:
+            return False
+        if event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick):
+            return True
+        if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            state = Qt.CheckState.Unchecked if _is_checked(index.data(Qt.ItemDataRole.CheckStateRole)) \
+                else Qt.CheckState.Checked
+            model.setData(index, state, Qt.ItemDataRole.CheckStateRole)
+            return True
+        return False
+
+
 class ValuePicker(QWidget):
     """Several values of one chart, ticked in a searchable list (at most one per series colour)."""
 
@@ -190,6 +263,11 @@ class ValuePicker(QWidget):
         self.search.setClearButtonEnabled(True)
         self.list = QListWidget()
         self.list.setObjectName("ValueList")
+        self.list.setItemDelegate(CheckRowDelegate(self.list))
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.list.setMouseTracking(True)
+        self.list.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover)
         self.hint = label("", "Muted", wrap=True)
         layout.addWidget(self.search)
         layout.addWidget(self.list)

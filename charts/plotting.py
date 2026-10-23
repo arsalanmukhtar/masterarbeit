@@ -42,6 +42,7 @@ CROSSHAIR_KINDS = ("line", "area", "stacked_area")
 # Category rows that hold the sum of the others and must not become a slice or a stacked segment
 TOTAL_NAMES = ("insgesamt", "gesamt", "zusammen", "total")
 DONUT_MAX_PARTS = 8
+DONUT_MAX_RINGS = 4
 
 
 def _register_fonts() -> str:
@@ -149,17 +150,33 @@ def _category_parts(item: Series) -> List[Tuple[str, float]]:
     return [(str(x), y) for x, y in zip(item.x, item.y) if y and not _is_total(x)]
 
 
-def donut_parts(series: Sequence[Series]) -> Tuple[List[Tuple[str, float]], Optional[str]]:
-    """Slices of a donut and, for several series, the X value whose shares are shown (the latest one
-    where every series has a value)."""
+def donut_rings(series: Sequence[Series]) -> List[str]:
+    """X values a donut of several values can show as rings (every series has a value there), latest first."""
+    if len(series) < 2:
+        return []
+    lookups = [dict(zip((str(x) for x in item.x), item.y)) for item in series]
+    return [str(x) for x in reversed(series[0].x) if all(lookup.get(str(x)) is not None for lookup in lookups)]
+
+
+def default_rings(choices: Sequence[str], count: int) -> List[str]:
+    """count ring X values spread evenly from the latest to the earliest choice."""
+    if count <= 1 or len(choices) <= 1:
+        return list(choices[:1])
+    count = min(count, len(choices))
+    return [choices[round(i * (len(choices) - 1) / (count - 1))] for i in range(count)]
+
+
+def donut_parts(series: Sequence[Series], at: Optional[str] = None) -> Tuple[List[Tuple[str, float]], Optional[str]]:
+    """Slices of a donut and, for several series, the X value whose shares are shown: at, or the latest one
+    where every series has a value."""
     if len(series) == 1:
         return _category_parts(series[0]), None
     lookups = [dict(zip((str(x) for x in item.x), item.y)) for item in series]
-    order = [str(x) for x in series[0].x]
-    for x in reversed(order):
-        if all(lookup.get(x) is not None for lookup in lookups):
-            return [(item.label, lookup[x]) for item, lookup in zip(series, lookups) if lookup[x]], x
-    return [], None
+    choices = donut_rings(series)
+    x = at if at in choices else (choices[0] if choices else None)
+    if x is None:
+        return [], None
+    return [(item.label, lookup[x]) for item, lookup in zip(series, lookups) if lookup[x]], x
 
 
 # --- Rounded bars ----------------------------------------------------------------------------------
@@ -313,14 +330,17 @@ def _categories(series: Sequence[Series]) -> List[str]:
 # --- Drawing -------------------------------------------------------------------------------------
 
 def draw_chart(figure, series: Sequence[Series], x_label: str, y_label: str, kind: str,
-               baseline: Optional[float] = None, legend: bool = True, max_x_labels: int = 14) -> ChartHandle:
-    """Draw one chart of the given kind. baseline marks a reference value, e.g. 100 for an index."""
+               baseline: Optional[float] = None, legend: bool = True, max_x_labels: int = 14,
+               rect: Optional[Sequence[float]] = None, rings: Optional[Sequence[str]] = None) -> ChartHandle:
+    """Draw one chart of the given kind, filling the figure or, with rect (left, bottom, width, height in
+    figure fractions), one area of it. baseline marks a reference value, e.g. 100 for an index. rings are
+    the X values of a donut of several values, one concentric ring each, from the outside in."""
     figure.set_facecolor(SURFACE)
     if kind == "donut":
-        return _draw_donut(figure, series, legend)
+        return _draw_donut(figure, series, legend, rect, rings)
     categories = _categories(series)
     horizontal = kind == "barh" or (kind in ("bar", "stacked_bar") and chart_kind("", categories) == "barh")
-    axes = figure.add_subplot(111)
+    axes = figure.add_axes(inset(rect, wide_labels=horizontal)) if rect else figure.add_subplot(111)
     _style_axes(axes, horizontal)
     time_axis = kind in CROSSHAIR_KINDS and _numeric_x(series)
     positions = [float(c) for c in categories] if time_axis else [float(i) for i in range(len(categories))]
@@ -424,28 +444,63 @@ def _draw_bars(axes, handle: ChartHandle, lookup, stacked: bool) -> List[float]:
     return totals if stacked else [0.0]
 
 
-def _draw_donut(figure, series: Sequence[Series], legend: bool) -> ChartHandle:
-    parts, share_x = donut_parts(series)
-    axes = figure.add_subplot(111)
+def _draw_donut(figure, series: Sequence[Series], legend: bool, rect=None,
+                rings: Optional[Sequence[str]] = None) -> ChartHandle:
+    multi = len(series) > 1
+    chosen = [x for x in (rings or []) if x in donut_rings(series)][:DONUT_MAX_RINGS] if multi else []
+    drawn = [donut_parts(series, x) for x in (chosen or [None])]
+    drawn = [(parts, x) for parts, x in drawn if parts]
+    axes = figure.add_axes(inset(rect)) if rect else figure.add_subplot(111)
     axes.set_facecolor(SURFACE)
-    handle = ChartHandle(axes, "donut", [label for label, _ in parts], [], list(series),
-                         note=f"Shares in {share_x}" if share_x else None)
-    if not parts:
+    names = [item.label for item in series] if multi else [label for label, _ in (drawn[0][0] if drawn else [])]
+    xs = [x for _, x in drawn if x is not None]
+    note = None
+    if len(xs) == 1:
+        note = f"Shares in {xs[0]}"
+    elif xs:
+        note = f"Rings from the outside in: {', '.join(xs)}"
+    handle = ChartHandle(axes, "donut", names, [], list(series), note=note)
+    if not drawn:
         axes.axis("off")
         return handle
-    total = sum(value for _, value in parts)
-    wedges, _ = axes.pie([value for _, value in parts], colors=[_colour(i) for i in range(len(parts))], startangle=90,
-                         counterclock=False, wedgeprops={"width": 0.36, "edgecolor": SURFACE, "linewidth": 2.5})
-    for wedge, (label, value) in zip(wedges, parts):
-        wedge.part_label, wedge.part_value, wedge.share = label, value, value / total * 100 if total else 0
-    handle.artists = [list(wedges)]
-    axes.text(0, 0.08, compact(total), ha="center", va="center", fontsize=18, fontweight="semibold", color=INK,
+    # Rings get thinner as they are added, so the centre keeps room for the total
+    width = 0.36 if len(drawn) == 1 else min(0.3, 0.66 / len(drawn))
+    gap = 0.035
+    wedges_all = []
+    for ring, (parts, x) in enumerate(drawn):
+        radius = 1 - ring * (width + gap)
+        total = sum(value for _, value in parts)
+        colours = [_colour(names.index(label)) for label, _ in parts]
+        wedges, _ = axes.pie([value for _, value in parts], colors=colours, startangle=90, counterclock=False,
+                             radius=radius, wedgeprops={"width": width, "edgecolor": SURFACE, "linewidth": 2})
+        for wedge, (label, value) in zip(wedges, parts):
+            wedge.part_label, wedge.part_value = label, value
+            wedge.share = value / total * 100 if total else 0
+            wedge.ring = x if len(drawn) > 1 else None
+        wedges_all.extend(wedges)
+        if len(drawn) > 1:
+            axes.text(0, radius - width / 2, x, ha="center", va="center", fontsize=TICK_SIZE - 1, fontweight="semibold",
+                      color=INK, fontfamily=FONT_FAMILY, zorder=5,
+                      bbox={"boxstyle": "round,pad=0.25,rounding_size=0.5", "fc": SURFACE, "ec": "none", "alpha": 0.9})
+    handle.artists = [wedges_all]
+    outer_parts, outer_x = drawn[0]
+    outer_total = sum(value for _, value in outer_parts)
+    inner_radius = 1 - (len(drawn) - 1) * (width + gap) - width
+    size = 18 if inner_radius > 0.45 else 13
+    axes.text(0, 0.08 * inner_radius / 0.64, compact(outer_total), ha="center", va="center", fontsize=size,
+              fontweight="semibold", color=INK, fontfamily=FONT_FAMILY)
+    caption = f"Total {outer_x}" if len(drawn) > 1 else "Total"
+    axes.text(0, -0.14 * inner_radius / 0.64, caption, ha="center", va="center", fontsize=LEGEND_SIZE - 1, color=MUTED,
               fontfamily=FONT_FAMILY)
-    axes.text(0, -0.14, "Total", ha="center", va="center", fontsize=LEGEND_SIZE, color=MUTED, fontfamily=FONT_FAMILY)
     axes.set_aspect("equal")
     if legend:
-        handles = [Line2D([], [], color=_colour(i), linewidth=0, marker="s", markersize=11) for i in range(len(parts))]
-        labels = [f"{label}   {value / total * 100:.1f} %" if total else label for label, value in parts]
+        handles = [Line2D([], [], color=_colour(i), linewidth=0, marker="s", markersize=11) for i in range(len(names))]
+        if len(drawn) == 1:
+            values = dict(outer_parts)
+            labels = [f"{name}   {values[name] / outer_total * 100:.1f} %" if outer_total and name in values else name
+                      for name in names]
+        else:
+            labels = list(names)
         legend_box = axes.legend(handles, labels, loc="center left", bbox_to_anchor=(1.02, 0.5), frameon=False,
                                  handletextpad=0.6, labelspacing=0.9, prop={"family": FONT_FAMILY, "size": LEGEND_SIZE})
         for text in legend_box.get_texts():
@@ -535,6 +590,116 @@ def _draw_panel(axes, item: Series, kind: str, max_labels: int):
         axes.axhline(0, color=AXIS, linewidth=1.2, zorder=2)
 
 
+def inset(rect: Sequence[float], wide_labels: bool = False) -> Tuple[float, float, float, float]:
+    """The axes inside an area of a page, leaving room for tick labels, axis titles and a legend on top.
+    Long category names (horizontal bars) get a wider left margin."""
+    left, bottom, width, height = rect
+    pad_left = 0.17 if wide_labels else 0.06
+    return left + pad_left, bottom + 0.08, width - pad_left - 0.015, height - 0.08 - 0.045
+
+
+def panel_rects(region: Sequence[float], count: int, columns: int, title_space: float = 0.04,
+                pad_left: float = 0.05, pad_bottom: float = 0.06) -> List[Tuple[float, float, float, float]]:
+    """Axes rectangles for a grid of panels inside region (left, bottom, width, height in figure fractions),
+    leaving room above each panel for its title, to the left for tick labels and below for the X axis."""
+    left, bottom, width, height = region
+    columns = max(1, min(columns, count))
+    rows = math.ceil(count / columns)
+    cell_w, cell_h = width / columns, height / rows
+    rects = []
+    for index in range(count):
+        row, column = divmod(index, columns)
+        x = left + column * cell_w + pad_left
+        y = bottom + (rows - 1 - row) * cell_h + pad_bottom
+        rects.append((x, y, cell_w - pad_left - 0.015, cell_h - pad_bottom - title_space))
+    return rects
+
+
+def draw_panels(figure, panels: Sequence[Tuple[str, Sequence[Series]]], x_label: str, x_dimension: str,
+                region: Sequence[float], columns: int = 3, baseline: Optional[float] = None,
+                legend_at: Optional[Tuple[float, float]] = None):
+    """Small charts in a grid, each with its own scale and one or more series (e.g. Gemeinde, Kreis, Land).
+    With several series per panel a shared legend is placed at legend_at (figure fractions)."""
+    figure.set_facecolor(SURFACE)
+    rects = panel_rects(region, len(panels), columns)
+    columns = max(1, min(columns, len(panels)))
+    for index, ((title, series), rect) in enumerate(zip(panels, rects)):
+        axes = figure.add_axes(rect)
+        _style_axes(axes)
+        categories = _categories(series)
+        numeric = x_dimension in TIME_DIMENSIONS and _numeric_x(series)
+        positions = [float(c) for c in categories] if numeric else [float(i) for i in range(len(categories))]
+        values = [y for item in series for y in item.y if y is not None]
+        reference = [baseline] if baseline is not None else []
+        if x_dimension in TIME_DIMENSIONS:
+            for number, item in enumerate(series):
+                lookup = dict(zip((str(x) for x in item.x), item.y))
+                points = [(p, lookup[c]) for p, c in zip(positions, categories) if lookup.get(c) is not None]
+                if points:
+                    xs, ys = zip(*points)
+                    axes.plot(xs, ys, color=_colour(number), linewidth=1.9, solid_capstyle="round", zorder=3)
+                    axes.scatter([xs[-1]], [ys[-1]], s=36, color=_colour(number), edgecolors=SURFACE, linewidths=1.5,
+                                 zorder=4)
+            if numeric and positions:
+                _year_ticks(axes, positions, 4, size=8.5)
+            else:
+                _category_ticks(axes, categories, positions, False, 6, size=8.5)
+            if values:
+                _value_ticks(axes, min(values + reference), max(values + reference), False, include_zero=False,
+                             count=4, size=8.5)
+        else:
+            slot = 0.8 / max(len(series), 1)
+            for number, item in enumerate(series):
+                lookup = dict(zip((str(x) for x in item.x), item.y))
+                for position, category in zip(positions, categories):
+                    value = lookup.get(category)
+                    if value is not None:
+                        axes.add_patch(RoundedBar(position - 0.4 + number * slot, slot, value,
+                                                  facecolor=_colour(number), edgecolor="none", zorder=3))
+            axes.set_xlim(-0.6, len(categories) - 0.4)
+            _category_ticks(axes, categories, positions, False, 8, size=8)
+            if values:
+                _value_ticks(axes, min(values + [0]), max(values), False, include_zero=True, count=4, size=8.5)
+        if baseline is not None:
+            axes.axhline(baseline, color=AXIS, linewidth=1.1, zorder=2)
+        axes.set_title(title, fontsize=10.5, color=INK, fontweight="semibold", fontfamily=FONT_FAMILY, loc="left", pad=7)
+        if index >= len(panels) - columns:
+            _axis_label(axes, "set_xlabel", x_label, size=9)
+    names = [item.label for item in panels[0][1]] if panels else []
+    if legend_at and len(names) > 1:
+        handles = [Line2D([], [], color=_colour(i), linewidth=3, solid_capstyle="round") for i in range(len(names))]
+        legend = figure.legend(handles, names, loc="upper left", bbox_to_anchor=legend_at, ncol=len(names),
+                               frameon=False, handlelength=1.4, columnspacing=1.8,
+                               prop={"family": FONT_FAMILY, "size": LEGEND_SIZE})
+        for text in legend.get_texts():
+            text.set_color(INK)
+
+
+def draw_pyramid(figure, ages: Sequence[object], left: Sequence[Optional[float]], right: Sequence[Optional[float]],
+                 left_label: str, right_label: str, rect: Sequence[float]):
+    """Age pyramid: one bar per age to the left (e.g. male) and to the right (e.g. female)."""
+    axes = figure.add_axes(inset(rect))
+    _style_axes(axes, horizontal=True)
+    positions = list(range(len(ages)))
+    left_values = [-(value or 0) for value in left]
+    right_values = [value or 0 for value in right]
+    axes.barh(positions, left_values, height=0.86, color=_colour(0), zorder=3)
+    axes.barh(positions, right_values, height=0.86, color=_colour(1), zorder=3)
+    limit = max([abs(v) for v in left_values + right_values] + [1]) * 1.08
+    axes.set_xlim(-limit, limit)
+    ticks = [tick for tick in MaxNLocator(nbins=4).tick_values(0, limit) if tick <= limit]
+    ticks = sorted({-tick for tick in ticks} | set(ticks))
+    _tick_labels(axes, "x", ticks, [compact(abs(tick)) for tick in ticks], 8.5)
+    step = max(1, len(ages) // 10)
+    _tick_labels(axes, "y", positions[::step], [str(age) for age in ages][::step], 8.5)
+    axes.set_ylim(-0.8, len(ages) - 0.2)
+    axes.axvline(0, color=AXIS, linewidth=1.1, zorder=4)
+    for x, text, alignment in ((-limit * 0.96, left_label, "left"), (limit * 0.96, right_label, "right")):
+        axes.text(x, len(ages) - 2, text, ha=alignment, va="top", fontsize=LEGEND_SIZE, fontweight="semibold",
+                  color=INK, fontfamily=FONT_FAMILY)
+    _axis_label(axes, "set_ylabel", "Age")
+
+
 def reserve_margins(figure, top: float = 0.0, bottom: float = 0.0):
     """Lay out the axes inside the figure, keeping room at the top (title) and bottom (credits)."""
     if hasattr(figure, "set_layout_engine"):
@@ -605,7 +770,8 @@ class ChartHover:
         if handle.kind == "donut":
             for wedge in handle.artists[0] if handle.artists else []:
                 if wedge.contains(event)[0]:
-                    text = f"{wedge.part_label}\n{format_number(wedge.part_value)}  ({wedge.share:.1f} %)"
+                    title = f"{wedge.part_label}, {wedge.ring}" if wedge.ring else wedge.part_label
+                    text = f"{title}\n{format_number(wedge.part_value)}  ({wedge.share:.1f} %)"
                     self._show(text, (event.xdata, event.ydata), event)
                     return
             self._hide()

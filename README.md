@@ -25,7 +25,7 @@ used offline from then on. *Choose file…* in the same dialog opens a data file
 
 **Requirements:** QGIS 3.22 or newer, including QGIS 4. The charts use matplotlib, which is included in
 the QGIS installers for Windows and macOS; on Linux install it with the package manager
-(e.g. `sudo apt install python3-matplotlib`). The data download and the OpenStreetMap basemap need an
+(e.g. `sudo apt install python3-matplotlib`). The data download and the basemaps need an
 internet connection; everything else works offline.
 
 ## Using the dashboard
@@ -35,7 +35,7 @@ internet connection; everything else works offline.
 | **Visualization** | A profile of one Gemeinde (population, change in ten years, average age, area, density) and charts of any statistic. Tick several values of a chart to compare them or to show their shares as stacked bars, stacked area or donut. Tables with more dimensions get filters such as school type, employee group or an age range. |
 | **Gemeinde · Kreis · Land** | The same value for a Gemeinde, its Kreis and Baden-Württemberg. Opens as an index (first year = 100), so areas of very different size can be compared on one axis; switch to *Values* for the actual numbers. |
 | **Gemeinde · Gemeinde** | Two Gemeinden side by side, as values or as an index. |
-| **Spatial Query** | Find a Gemeinde by name or by clicking the map (*Identify on map*) and see its attributes. *Thematic map* colours every Gemeinde by a statistic and year in three to seven classes, with a legend and the rank of the selected Gemeinde. *Save as layer* writes it as GeoPackage or Shapefile, keeps the colours and labels and adds it to the QGIS project. *Map layers* picks the basemap (OpenStreetMap standard, muted or dark, the XYZ connections of the QGIS Browser, or a raster layer of the project) and opens the QGIS layer properties of each map layer for symbology, labels and more. |
+| **Spatial Query** | Find a Gemeinde by name or by clicking the map (*Identify on map*) and see its attributes. *Thematic map* colours every Gemeinde by a statistic and year in three to seven classes, with a legend and the rank of the selected Gemeinde. *Save as layer* writes it as GeoPackage or Shapefile, keeps the colours and labels and adds it to the QGIS project. *Map layers* picks the basemap (OpenStreetMap standard, muted or dark; CARTO Positron, Dark Matter or Voyager; Esri World Imagery, World Topographic or Light Gray Canvas; OpenTopoMap; the XYZ connections of the QGIS Browser, or a raster layer of the project) and opens the QGIS layer properties of each map layer for symbology, labels and more. |
 
 - Every dropdown is searchable: type any part of an entry.
 - Charts update as soon as a selection changes. The chart type menu offers the types that fit the data:
@@ -45,8 +45,11 @@ internet connection; everything else works offline.
 - The ten-year population change carries a coloured arrow: green for growth of 2 % or more, yellow for
   smaller growth, orange for a decline under 2 % and red for a decline of 2 % or more.
 - *Export* saves the chart as PNG, SVG or PDF, or its data as CSV (opens in Excel).
-- *Create PDF report* writes a PDF with a map and every chart and table of the selected category,
-  plus each chart as a PNG image.
+- *Create PDF report* writes a PDF for the selected category: a cover with a map and key figures, an
+  *At a glance* page with the main value of every chart and its change, one page per chart with the key
+  figures beside it (two pages for charts split by category, plus an age pyramid where the data allows),
+  and a page about the data. The numbers behind every chart are saved as CSV files, together with the
+  maps and chart images, in a folder next to the PDF.
 - *Dark theme* at the top right of the window (or *View → Dark theme*) switches between a light and a dark
   look; the choice is remembered. Saved chart images and PDF reports always use the light look.
 - The window opens maximized and shows a loading page until the first tab is ready; the other tabs are

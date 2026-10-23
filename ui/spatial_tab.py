@@ -15,13 +15,13 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QFileDialog, QFormLayout, QH
                                  QVBoxLayout, QWidget)
 
 from ..charts.plotting import format_number
-from ..core.attribution import BASEMAP_CREDIT
 from ..core.data import CensusData
 from ..core.models import Chart, Gemeinde
 from ..reports.pdf_report import safe_file_name
-from ..spatial.layers import (CANVAS_COLOURS, DEFAULT_BASEMAPS, HIGHLIGHT_OUTLINE_STYLE, HIGHLIGHT_STYLE, NO_BASEMAP,
-                              OUTLINE_STYLES, WEB_MERCATOR, apply_style, basemap_choices, basemap_layer, boundary_layer,
-                              save_default_style, set_keys, thematic_layer, to_web_mercator, write_layer)
+from ..spatial.layers import (CANVAS_COLOURS, DEFAULT_BASEMAPS, HIGHLIGHT_OUTLINE_STYLE, HIGHLIGHT_STYLE,
+                              OUTLINE_STYLES, WEB_MERCATOR, apply_style, basemap_choices, basemap_credit, basemap_layer,
+                              boundary_layer, save_default_style, set_keys, thematic_layer, to_web_mercator,
+                              write_layer)
 from .chart_tabs import fit_side_panels, page_splitter, side_panel
 from .inputs import Card, GemeindeDetails, GemeindePicker, label, refill, search_combo
 
@@ -33,20 +33,28 @@ INFO_MAX_WIDTH = 560
 
 
 class Legend(Card):
+    """Legend of the thematic map; it fills the space left at the bottom of the side panel."""
+
+    HINT = "Show a thematic map to see its classes here."
+
     def __init__(self, parent=None):
         super().__init__("Legend", parent, spacing=6)
-        self.caption = label("", "Muted", wrap=True)
+        self.caption = label(self.HINT, "Muted", wrap=True)
         self.body.addWidget(self.caption)
         self._rows = QVBoxLayout()
         self._rows.setSpacing(4)
         self.body.addLayout(self._rows)
-        self.setVisible(False)
+        self.body.addStretch(1)
 
-    def show_entries(self, caption: str, entries):
+    def clear(self):
         while self._rows.count():
             item = self._rows.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        self.caption.setText(self.HINT)
+
+    def show_entries(self, caption: str, entries):
+        self.clear()
         for colour, text in entries:
             row = QWidget()
             layout = QHBoxLayout(row)
@@ -59,7 +67,6 @@ class Legend(Card):
             layout.addStretch(1)
             self._rows.addWidget(row)
         self.caption.setText(caption)
-        self.setVisible(True)
 
 
 class SpatialTab(QWidget):
@@ -82,6 +89,10 @@ class SpatialTab(QWidget):
         self.highlight = boundary_layer(data_path, "Selected Gemeinde", HIGHLIGHT_STYLE, keys=[])
         self.basemap_name = QgsSettings().value(BASEMAP_SETTING, "") or DEFAULT_BASEMAPS["light"]
         self.basemap = basemap_layer(self.basemap_name)
+        if self.basemap is None:
+            # A saved choice that no longer exists (e.g. a removed project layer) falls back to the default
+            self.basemap_name = DEFAULT_BASEMAPS["light"]
+            self.basemap = basemap_layer(self.basemap_name)
         self.thematic: Optional[QgsVectorLayer] = None
         self.map = QgsMapCanvas()
         self.map.setCanvasColor(QColor(252, 252, 251))
@@ -98,9 +109,9 @@ class SpatialTab(QWidget):
         map_card = Card(spacing=6)
         map_card.body.setContentsMargins(6, 6, 6, 6)
         map_card.body.addWidget(self.map, 1)
-        credit = label(BASEMAP_CREDIT, "Muted")
-        credit.setAlignment(Qt.AlignmentFlag.AlignRight)
-        map_card.body.addWidget(credit)
+        self.credit = label(basemap_credit(self.basemap_name), "Muted", wrap=True)
+        self.credit.setAlignment(Qt.AlignmentFlag.AlignRight)
+        map_card.body.addWidget(self.credit)
 
         # Gemeinde card
         gemeinde_card = Card("Gemeinde")
@@ -193,7 +204,8 @@ class SpatialTab(QWidget):
         right_layout.addWidget(info_card, 1)
         right_layout.addWidget(layers_card)
 
-        self.splitter = page_splitter(side_panel(gemeinde_card, thematic_card, self.legend), map_card, right)
+        self.splitter = page_splitter(side_panel(gemeinde_card, thematic_card, self.legend, fill_last=True), map_card,
+                                      right)
         self._sized = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
@@ -249,8 +261,12 @@ class SpatialTab(QWidget):
             QgsSettings().setValue(BASEMAP_SETTING, name)
         if name == self.basemap_name and self.basemap is not None:
             return
+        layer = basemap_layer(name)
+        if layer is None:
+            return
         self.basemap_name = name
-        self.basemap = None if name == NO_BASEMAP else basemap_layer(name)
+        self.basemap = layer
+        self.credit.setText(basemap_credit(name))
         self._customised.discard("basemap")
         self._update_map_layers()
         index = self.basemap_combo.findText(name)
@@ -264,8 +280,7 @@ class SpatialTab(QWidget):
         layer = {"thematic": self.thematic, "outlines": self.outlines, "highlight": self.highlight,
                  "basemap": self.basemap}[key]
         if layer is None:
-            QMessageBox.information(self, "Layer style", "Show a thematic map first." if key == "thematic"
-                                    else "No basemap is shown.")
+            QMessageBox.information(self, "Layer style", "Show a thematic map first.")
             return
         if self.iface is not None and hasattr(self.iface, "showLayerProperties"):
             self.iface.showLayerProperties(layer)
@@ -390,7 +405,7 @@ class SpatialTab(QWidget):
         self.thematic, self._values, self._value_title, self._thematic_key = None, {}, "", None
         if "highlight" not in self._customised:
             apply_style(self.highlight, HIGHLIGHT_STYLE)
-        self.legend.setVisible(False)
+        self.legend.clear()
         self._update_map_layers()
         self.show_gemeinde(self.picker.gemeinde(), zoom=False)
 

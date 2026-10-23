@@ -15,6 +15,9 @@ from qgis.PyQt.QtWidgets import QApplication
 
 from ..core.style import FONT_DIR, ICON_DIR as _ICON_DIR, THEMES
 
+# Colours of the theme in use, for widgets that paint themselves (the value list)
+CURRENT_THEME: Dict[str, Dict[str, str]] = {"tokens": THEMES["light"]}
+
 # Qt stylesheets need forward slashes, also on Windows
 ICON_DIR = _ICON_DIR.replace("\\", "/")
 THEME_SETTING = "CenGeoBW/theme"
@@ -89,15 +92,6 @@ QMenu::item:selected {{ background: {t['accent_wash']}; color: {t['ink']}; }}
 
 QListWidget#ValueList {{ background: {t['field']}; color: {t['ink']}; border: 1px solid {t['field_border']};
                         border-radius: 6px; padding: 4px; outline: 0; }}
-QListWidget#ValueList::item {{ padding: 4px 4px; border-radius: 4px; }}
-QListWidget#ValueList::item:hover {{ background: {t['hover']}; }}
-QListWidget#ValueList::item:selected {{ background: {t['accent_wash']}; color: {t['ink']}; }}
-QListWidget#ValueList::item:disabled {{ color: {t['muted']}; }}
-QListWidget#ValueList::indicator {{ width: 14px; height: 14px; border: 1px solid {t['field_border_hover']};
-                                   border-radius: 3px; background: {t['field']}; }}
-QListWidget#ValueList::indicator:checked {{ background: {t['accent']}; border-color: {t['accent']};
-                                           image: url({ICON_DIR}/check.svg); }}
-QListWidget#ValueList::indicator:disabled {{ border-color: {t['field_border']}; background: {t['plane']}; }}
 QTableWidget {{ background: {t['surface']}; color: {t['ink']}; border: 1px solid {t['border']}; border-radius: 8px;
                gridline-color: {t['grid']}; alternate-background-color: {t['alternate_row']};
                selection-background-color: {t['accent_wash']}; selection-color: {t['ink']}; }}
@@ -146,6 +140,7 @@ def apply_theme(window, name: str = "light"):
     window.setFont(font)
     window.setObjectName("Dashboard")
     # With a stylesheet in place Qt takes widget fonts from it, so the family is set there as well
+    CURRENT_THEME["tokens"] = THEMES[name]
     window.setStyleSheet(stylesheet(THEMES[name], family))
 
 
